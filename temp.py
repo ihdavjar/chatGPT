@@ -5,17 +5,18 @@ import torch.nn.functional as F
 
 #Importing the Data
 text = open('/media/ihdav/Files/Research/Infrrd_Research/chatGPT/Data/Tiny_Shakespeare/input.txt','r').read()
+text = open('/media/ihdav/Files/Research/Infrrd_Research/chatGPT/out_data_full.txt','r').read()
 
 #hyperparameters
 batch_size = 64 #number of sequences in a batch (B)
-block_size = 64 #number of characters in a sequence (T)
+block_size = 128 #number of characters in a sequence (T)
 max_iters = 10000
 eval_intervals = 300
-learning_rate = 3e-5
+learning_rate = 3e-4
 eval_ites = 100
 n_embed = 128
 num_heads = 4  
-num_blocks = 4
+num_blocks = 6
 dropout = 0.2
 
 torch.manual_seed(1337)
@@ -26,6 +27,8 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 #Creating the tokenisers
 vocab = sorted(list(set(text)))
 vocab_size = len(vocab)
+
+print(f"Vocab Size: {vocab_size}")
 
 stoi = {s:i for i,s in enumerate(vocab)} # String to Index
 itos = {i:s for s,i in stoi.items()} # Index to String
@@ -71,7 +74,10 @@ class Head(nn.Module):
         super().__init__()
         self.key = nn.Linear(n_embed, head_size,bias=False)
         self.query = nn.Linear(n_embed, head_size,bias=False)
-        self.value = nn.Linear(n_embed, head_size,bias=False) 
+        self.value = nn.Linear(n_embed, head_size,bias=False)
+        self.out_drop = nn.Dropout(dropout)
+        self.out_proj = nn.Linear(head_size, head_size)
+
         self.register_buffer("tril", torch.tril(torch.ones(block_size, block_size)))
         # self.dn = nn.Dropout(dropout)
 
@@ -90,6 +96,9 @@ class Head(nn.Module):
 
 
         out = wei @ values #(B,T,T) @ (B,T,head_size) -> (B,T,head_size)
+        out = self.out_proj(out) #(B,T,head_size) -> (B,T,head_size)
+        out = self.out_drop(out)
+
         return out
     
 
@@ -99,10 +108,13 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_embed, n_embed)
+        self.dn = nn.Dropout(dropout)
     
     def forward(self,x):    
         out = torch.cat([head(x) for head in self.heads], dim=-1) #(B,T,head_size*num_heads)
-        return self.proj(out) #(B,T,n_embed)
+        out = self.proj(out)
+        out = self.dn(out)
+        return out #(B,T,n_embed)
     
 
 class FeedForward(nn.Module):
@@ -191,31 +203,31 @@ class BigramLanguageModel(nn.Module):
 
 #Training the model
 model = BigramLanguageModel().to(device)
-model = torch.load("/media/ihdav/Files/Research/Infrrd_Research/chatGPT/BigramModel.pt")
+# model = torch.load("/media/ihdav/Files/Research/Infrrd_Research/chatGPT/BigramModel_Chats.pt")
 
-# optim = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+optim = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-# for i in range(max_iters):
+for i in range(max_iters):
     
-#     #getting the batch
-#     xb, yb = get_batch("train")
+    #getting the batch
+    xb, yb = get_batch("train")
     
-#     #forward pass
-#     logits, loss = model(xb, yb)
+    #forward pass
+    logits, loss = model(xb, yb)
 
-#     #backward pass
-#     optim.zero_grad(set_to_none=True)
-#     loss.backward()
-#     optim.step()
+    #backward pass
+    optim.zero_grad(set_to_none=True)
+    loss.backward()
+    optim.step()
     
 
-#     #THIS LOSS in pretty noisy as this is on each of the batch.
-#     #Hence we made new average kind of loss on both train and test dataset
-#     if (i%eval_intervals == 0):
-#         temp_dict = estimate_loss()
-#         print(f"{i}th Iteration=>\nTrain Loss: {temp_dict['train']}, Test Loss: {temp_dict['test']}")
+    #THIS LOSS in pretty noisy as this is on each of the batch.
+    #Hence we made new average kind of loss on both train and test dataset
+    if (i%eval_intervals == 0):
+        temp_dict = estimate_loss()
+        print(f"{i}th Iteration=>\nTrain Loss: {temp_dict['train']}, Test Loss: {temp_dict['test']}")
 
-# torch.save(model, "/media/ihdav/Files/Research/Infrrd_Research/chatGPT/BigramModel.pt")
+torch.save(model, "/media/ihdav/Files/Research/Infrrd_Research/chatGPT/BigramModel_Chats.pt")
 # model = BigramLanguageModel().to(device)
 # model = torch.load("/media/ihdav/Files/Research/Infrrd_Research/chatGPT/BigramModel.pt")
 
